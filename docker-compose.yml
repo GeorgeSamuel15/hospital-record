@@ -1,0 +1,70 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hospital-rms-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hospital_user
+      POSTGRES_PASSWORD: hospital_password
+      POSTGRES_DB: hospital_rms
+    ports:
+      - '5432:5432'
+    volumes:
+      - hospital_rms_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U hospital_user -d hospital_rms']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: hospital-rms-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://hospital_user:hospital_password@postgres:5432/hospital_rms?schema=public
+      PORT: 4000
+      NODE_ENV: production
+      FRONTEND_URL: http://localhost:5173
+      # No fallback values here on purpose: env.ts requires 32+ character
+      # secrets, so if these aren't set, the backend refuses to start with a
+      # clear error instead of silently running with a known, publicly
+      # visible-in-this-repo secret. Set these before running:
+      #   export JWT_ACCESS_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
+      #   export JWT_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      COOKIE_SECURE: 'false'
+      COOKIE_DOMAIN: localhost
+      # Off by default. Seeding creates demo accounts with a known password
+      # (including an Admin), so it must be turned on explicitly rather than
+      # running automatically on every container start:
+      #   SEED_ON_START=true docker compose up
+      SEED_ON_START: ${SEED_ON_START:-false}
+    ports:
+      - '4000:4000'
+    command: >
+      sh -c "npx prisma migrate deploy &&
+      if [ \"$$SEED_ON_START\" = \"true\" ]; then npx prisma db seed; fi &&
+      node dist/server.js"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://localhost:4000/api
+    container_name: hospital-rms-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '5173:80'
+
+volumes:
+  hospital_rms_pgdata:
