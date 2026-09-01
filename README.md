@@ -1,3 +1,4 @@
+
 # Hospital Record Management System
 
 A full-stack hospital record management platform: React + TypeScript frontend,
@@ -353,3 +354,6 @@ that was cross-checked by hand.
 - **Login succeeds but `/auth/me` returns 401** — check that
   `COOKIE_SECURE=false` in development (cookies marked `secure` won't be
   sent over plain `http://localhost`).
+=======
+# hospital-record
+
