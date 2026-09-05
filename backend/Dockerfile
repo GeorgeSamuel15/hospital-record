@@ -2,6 +2,9 @@
 FROM node:20-alpine AS build
 WORKDIR /app
 
+# Prisma needs OpenSSL
+RUN apk add --no-cache openssl
+
 COPY package.json package-lock.json* ./
 RUN npm install
 
@@ -14,11 +17,9 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Deliberately NOT using --omit=dev here: the `prisma` CLI (a devDependency)
-# is needed at container start to run `prisma migrate deploy` and
-# `prisma db seed` (see docker-compose.yml's backend command). For a leaner
-# production image, run migrations as a separate one-off step instead and
-# switch this to --omit=dev.
+# Prisma needs OpenSSL at runtime
+RUN apk add --no-cache openssl
+
 COPY package.json package-lock.json* ./
 RUN npm install
 
