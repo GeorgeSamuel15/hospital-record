@@ -8,6 +8,7 @@ import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
 import { assertVisitBelongsToPatient } from '../services/relationshipValidation.service';
+import { notifyRole } from '../services/notification.service';
 
 // --- Validators -----------------------------------------------------------
 
@@ -48,7 +49,7 @@ async function createPrescription(input: CreatePrescriptionInput, doctorId: stri
   if (!patient) throw AppError.notFound('Patient not found.');
   await assertVisitBelongsToPatient(input.visitId, input.patientId);
 
-  return prisma.prescription.create({
+  const prescription = await prisma.prescription.create({
     data: {
       patientId: input.patientId,
       visitId: input.visitId,
@@ -57,6 +58,15 @@ async function createPrescription(input: CreatePrescriptionInput, doctorId: stri
     },
     include: { items: true, patient: { select: { firstName: true, lastName: true, patientNumber: true } } },
   });
+
+  await notifyRole(Role.PHARMACIST, {
+    type: 'PRESCRIPTION_CREATED',
+    title: 'New prescription',
+    message: `New prescription for ${prescription.patient.firstName} ${prescription.patient.lastName}`,
+    link: '/prescriptions',
+  });
+
+  return prescription;
 }
 
 async function listPrescriptions(query: ListPrescriptionsQuery) {

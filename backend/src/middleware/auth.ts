@@ -28,7 +28,7 @@ declare global {
  * immediately, even if their token hasn't expired yet.
  */
 export function requireAuth() {
-  return async (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
     try {
       const token = req.cookies?.[ACCESS_TOKEN_COOKIE];
       if (!token) throw AppError.unauthorized('You must be logged in to access this resource.');
@@ -57,7 +57,7 @@ export function requireAuth() {
  * Enforced server-side — the frontend hiding buttons is not a substitute.
  */
 export function requireRole(...allowedRoles: Role[]) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: Request, _res: Response, next: NextFunction) => {
     if (!req.user) return next(AppError.unauthorized('Authentication required.'));
     if (!allowedRoles.includes(req.user.role)) {
       return next(AppError.forbidden('You do not have permission to perform this action.'));

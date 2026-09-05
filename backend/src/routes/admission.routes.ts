@@ -7,6 +7,7 @@ import { AppError } from '../utils/AppError';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
+import { notifyRole } from '../services/notification.service';
 
 // --- Validators -----------------------------------------------------------
 
@@ -53,10 +54,19 @@ async function admitPatient(input: CreateAdmissionInput) {
   if (alreadyAdmitted) throw AppError.conflict('This patient already has an active admission.');
 
   const { doctorId, ...rest } = input;
-  return prisma.admission.create({
+  const admission = await prisma.admission.create({
     data: { ...rest, admittingDoctorId: doctorId },
     include: { patient: { select: { firstName: true, lastName: true, patientNumber: true } } },
   });
+
+  await notifyRole(Role.ADMIN, {
+    type: 'ADMISSION_CREATED',
+    title: 'New admission',
+    message: `${admission.patient.firstName} ${admission.patient.lastName} admitted to ${admission.ward}, room ${admission.room}`,
+    link: '/admissions',
+  });
+
+  return admission;
 }
 
 async function listAdmissions(query: ListAdmissionsQuery) {

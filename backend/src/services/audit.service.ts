@@ -37,7 +37,7 @@ interface LogAuditParams {
   resource: string;
   resourceId?: string | null;
   metadata?: Record<string, unknown>;
-  req?: Request;
+  req?: Request<any, any, any, any, any>;
 }
 
 export function getClientIp(req: Request): string | undefined {

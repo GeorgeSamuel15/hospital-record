@@ -15,10 +15,9 @@ export function notFoundHandler(req: Request, res: Response) {
 // Express recognizes it as an error handler.
 export function errorHandler(
   err: unknown,
-  req: Request,
+  _req: Request,
   res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  next: NextFunction
+  _next: NextFunction
 ) {
   // Known, expected application errors
   if (err instanceof AppError) {
@@ -54,10 +53,10 @@ export function errorHandler(
 }
 
 /** Wraps an async route handler so rejected promises reach errorHandler. */
-export function asyncHandler<T extends (req: Request, res: Response, next: NextFunction) => Promise<unknown>>(
-  fn: T
-) {
-  return (req: Request, res: Response, next: NextFunction) => {
+export function asyncHandler(
+  fn: (req: any, res: any, next: NextFunction) => Promise<unknown> | unknown
+): (req: Request, res: Response, next: NextFunction) => void {
+  return (req, res, next) => {
     Promise.resolve(fn(req, res, next)).catch(next);
   };
 }

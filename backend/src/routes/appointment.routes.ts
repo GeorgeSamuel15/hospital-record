@@ -6,9 +6,9 @@ import { AppError } from '../utils/AppError';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
+import { notifyUser } from '../services/notification.service';
 import {
   createAppointmentSchema,
-  listAppointmentsQuerySchema,
   updateAppointmentSchema,
   CreateAppointmentInput,
   ListAppointmentsQuery,
@@ -47,7 +47,7 @@ async function assertNoDoctorConflict(doctorId: string, scheduledAt: Date, exclu
   }
 }
 
-async function createAppointment(input: CreateAppointmentInput) {
+async function createAppointment(input: CreateAppointmentInput, scheduledById: string) {
   const [patient, doctor] = await Promise.all([
     prisma.patient.findUnique({ where: { id: input.patientId } }),
     prisma.user.findUnique({ where: { id: input.doctorId } }),
@@ -57,10 +57,25 @@ async function createAppointment(input: CreateAppointmentInput) {
 
   await assertNoDoctorConflict(input.doctorId, input.scheduledAt);
 
-  return prisma.appointment.create({
+  const appointment = await prisma.appointment.create({
     data: input,
     include: { patient: { select: { firstName: true, lastName: true, patientNumber: true } }, doctor: { select: { firstName: true, lastName: true } }, department: true },
   });
+
+  // Only notify the doctor if someone else scheduled it on their behalf —
+  // no point notifying a doctor about an appointment they booked themselves.
+  await notifyUser(
+    input.doctorId,
+    {
+      type: 'APPOINTMENT_ASSIGNED',
+      title: 'New appointment',
+      message: `${appointment.patient.firstName} ${appointment.patient.lastName} — ${new Date(appointment.scheduledAt).toLocaleString()}`,
+      link: '/appointments',
+    },
+    scheduledById
+  );
+
+  return appointment;
 }
 
 async function listAppointments(query: ListAppointmentsQuery) {
@@ -108,7 +123,7 @@ async function updateAppointment(id: string, input: UpdateAppointmentInput) {
 
 const create = asyncHandler(async (req: Request<unknown, unknown, CreateAppointmentInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
-  const appointment = await createAppointment(req.body);
+  const appointment = await createAppointment(req.body, req.user.id);
   await logAudit({ userId: req.user.id, action: 'APPOINTMENT_CREATED', resource: 'Appointment', resourceId: appointment.id, req });
   res.status(201).json({ success: true, message: 'Appointment scheduled.', data: { appointment } });
 });

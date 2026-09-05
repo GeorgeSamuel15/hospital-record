@@ -9,7 +9,7 @@ export function validate(schema: AnyZodObject, source: 'body' | 'query' | 'param
   return (req: Request, res: Response, next: NextFunction) => {
     try {
       req[source] = schema.parse(req[source]);
-      next();
+      return next();
     } catch (err) {
       if (err instanceof ZodError) {
         return res.status(422).json({

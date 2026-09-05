@@ -15,7 +15,6 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  Bell,
   Sun,
   Moon,
 } from 'lucide-react';
@@ -23,6 +22,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useTheme } from '@/hooks/useTheme';
 import { ROLE_LABELS, Role } from '@/types/auth';
 import { InitialsAvatar } from '@/components/InitialsAvatar';
+import { NotificationBell } from '@/components/NotificationBell';
 
 interface NavItem {
   to: string;
@@ -116,9 +116,7 @@ export default function AppLayout() {
             >
               {theme === 'dark' ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
             </button>
-            <button className="rounded-lg p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800" title="Notifications" aria-label="Notifications">
-              <Bell className="h-4.5 w-4.5" />
-            </button>
+            <NotificationBell />
 
             <div className="relative">
               <button

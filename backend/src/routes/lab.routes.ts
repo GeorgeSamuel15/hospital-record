@@ -8,6 +8,7 @@ import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
 import { assertVisitBelongsToPatient } from '../services/relationshipValidation.service';
+import { notifyRole, notifyUser } from '../services/notification.service';
 
 // --- Validators -----------------------------------------------------------
 
@@ -47,10 +48,19 @@ async function createLabRequest(input: CreateLabRequestInput, doctorId: string) 
   if (!patient) throw AppError.notFound('Patient not found.');
   await assertVisitBelongsToPatient(input.visitId, input.patientId);
 
-  return prisma.labRequest.create({
+  const labRequest = await prisma.labRequest.create({
     data: { ...input, doctorId },
     include: { patient: { select: { firstName: true, lastName: true, patientNumber: true } } },
   });
+
+  await notifyRole(Role.LAB_TECHNICIAN, {
+    type: 'LAB_REQUEST_CREATED',
+    title: 'New lab request',
+    message: `${input.testName} requested for ${labRequest.patient.firstName} ${labRequest.patient.lastName}`,
+    link: '/laboratory',
+  });
+
+  return labRequest;
 }
 
 async function listLabRequests(query: ListLabRequestsQuery) {
@@ -101,7 +111,10 @@ async function updateLabRequestStatus(id: string, status: UpdateLabRequestStatus
 }
 
 async function createLabResult(input: CreateLabResultInput, technicianId: string) {
-  const labRequest = await prisma.labRequest.findUnique({ where: { id: input.labRequestId } });
+  const labRequest = await prisma.labRequest.findUnique({
+    where: { id: input.labRequestId },
+    include: { patient: { select: { firstName: true, lastName: true } } },
+  });
   if (!labRequest) throw AppError.notFound('Lab request not found.');
   if (labRequest.status !== 'IN_PROGRESS') {
     throw AppError.badRequest(
@@ -113,6 +126,13 @@ async function createLabResult(input: CreateLabResultInput, technicianId: string
     prisma.labResult.create({ data: { ...input, technicianId } }),
     prisma.labRequest.update({ where: { id: input.labRequestId }, data: { status: 'COMPLETED' } }),
   ]);
+
+  await notifyUser(labRequest.doctorId, {
+    type: 'LAB_RESULT_READY',
+    title: 'Lab result ready',
+    message: `${labRequest.testName} result is ready for ${labRequest.patient.firstName} ${labRequest.patient.lastName}`,
+    link: '/laboratory',
+  });
 
   return result;
 }

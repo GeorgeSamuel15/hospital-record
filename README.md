@@ -1,4 +1,3 @@
-
 # Hospital Record Management System
 
 A full-stack hospital record management platform: React + TypeScript frontend,
@@ -291,6 +290,10 @@ this pattern for real deployments.
 | GET    | `/api/settings`                 | Yes | Read system settings |
 | PUT    | `/api/settings`                 | Admin | Update system settings |
 | GET    | `/api/staff-directory`          | Yes | Minimal staff lookup (id/name/role/department) for populating dropdowns |
+| GET    | `/api/notifications`            | Yes | Your own notifications (always scoped to the caller) |
+| GET    | `/api/notifications/unread-count` | Yes | Your unread count |
+| PUT    | `/api/notifications/:id/read`   | Yes | Mark one notification read |
+| PUT    | `/api/notifications/read-all`   | Yes | Mark all of yours read |
 
 Every backend endpoint from the original spec is now implemented and mounted
 in `app.ts`. What remains is frontend UI for several of these — see the
@@ -354,6 +357,3 @@ that was cross-checked by hand.
 - **Login succeeds but `/auth/me` returns 401** — check that
   `COOKIE_SECURE=false` in development (cookies marked `secure` won't be
   sent over plain `http://localhost`).
-=======
-# hospital-record
-

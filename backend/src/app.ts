@@ -21,6 +21,7 @@ import departmentRoutes from './routes/department.routes';
 import auditRoutes from './routes/audit.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import settingsRoutes from './routes/settings.routes';
+import notificationRoutes from './routes/notification.routes';
 
 const app = express();
 
@@ -73,6 +74,7 @@ app.use('/api/departments', departmentRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // --- 404 + centralized error handling (must be last) --------------------
 app.use(notFoundHandler);
