@@ -47,7 +47,6 @@ export function MonthCalendar({ appointments }: { appointments: AppointmentItem[
 
   const firstOfMonth = new Date(year, month, 1);
   const startWeekday = firstOfMonth.getDay(); // 0 = Sunday
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   // Build a 6x7 grid including leading/trailing days from adjacent months.
   const gridStart = new Date(year, month, 1 - startWeekday);

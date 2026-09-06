@@ -21,8 +21,6 @@ const STATUS_TONE: Record<AdmissionStatus, 'blue' | 'green' | 'slate'> = {
 export default function AdmissionsPage() {
   const [showForm, setShowForm] = useState(false);
   const [dischargeFormFor, setDischargeFormFor] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-
   const { data, isLoading } = useQuery({ queryKey: ['admissions'], queryFn: () => listAdmissions({ pageSize: 100 }) });
 
   return (
@@ -78,8 +76,8 @@ export default function AdmissionsPage() {
 }
 
 function NewAdmissionForm({ onClose }: { onClose: () => void }) {
-  const queryClient = useQueryClient();
   const [patient, setPatient] = useState<PatientListItem | null>(null);
+  const queryClient = useQueryClient();
   const [doctorId, setDoctorId] = useState('');
   const [ward, setWard] = useState('');
   const [room, setRoom] = useState('');

@@ -40,11 +40,16 @@ export default function AppointmentsPage() {
     onError: () => toast.error('Could not update appointment.'),
   });
 
-  const grouped = (data?.appointments ?? []).reduce<Record<string, typeof data.appointments>>((acc, appt) => {
-    const day = new Date(appt.scheduledAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
-    (acc[day] ??= []).push(appt);
-    return acc;
-  }, {});
+ const grouped = (data?.appointments ?? []).reduce((acc, appt) => {
+  const day = new Date(appt.scheduledAt).toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
+
+      (acc[day] ??= []).push(appt);
+       return acc;
+  }, {} as Record<string, NonNullable<typeof data>['appointments']>);
 
   return (
     <div>
