@@ -1,6 +1,6 @@
-import { api, ApiResponse } from './api';
+import { api } from './api';
 
-export interface NotificationItem {
+export interface Notification {
   id: string;
   type: string;
   title: string;
@@ -10,21 +10,20 @@ export interface NotificationItem {
   createdAt: string;
 }
 
-export async function listNotifications() {
-  const res = await api.get<ApiResponse<{ notifications: NotificationItem[] }>>('/notifications');
-  return res.data.data!.notifications;
+export interface NotificationResponse {
+  notifications: Notification[];
+  unreadCount: number;
 }
 
-export async function getUnreadCount() {
-  const res = await api.get<ApiResponse<{ count: number }>>('/notifications/unread-count');
-  return res.data.data!.count;
+export async function fetchNotifications(): Promise<NotificationResponse> {
+  const response = await api.get('/notifications');
+  return response.data.data;
 }
 
 export async function markNotificationRead(id: string) {
-  const res = await api.put<ApiResponse<{ notification: NotificationItem }>>(`/notifications/${id}/read`);
-  return res.data.data!.notification;
+  await api.patch(`/notifications/${id}/read`);
 }
 
 export async function markAllNotificationsRead() {
-  await api.put('/notifications/read-all');
+  await api.patch('/notifications/read-all');
 }

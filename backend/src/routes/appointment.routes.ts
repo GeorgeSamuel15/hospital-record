@@ -6,9 +6,10 @@ import { AppError } from '../utils/AppError';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
-import { notifyUser } from '../services/notification.service';
+import { notifyUsers } from '../services/notification.service';
 import {
   createAppointmentSchema,
+  listAppointmentsQuerySchema,
   updateAppointmentSchema,
   CreateAppointmentInput,
   ListAppointmentsQuery,
@@ -47,7 +48,7 @@ async function assertNoDoctorConflict(doctorId: string, scheduledAt: Date, exclu
   }
 }
 
-async function createAppointment(input: CreateAppointmentInput, scheduledById: string) {
+async function createAppointment(input: CreateAppointmentInput) {
   const [patient, doctor] = await Promise.all([
     prisma.patient.findUnique({ where: { id: input.patientId } }),
     prisma.user.findUnique({ where: { id: input.doctorId } }),
@@ -57,31 +58,17 @@ async function createAppointment(input: CreateAppointmentInput, scheduledById: s
 
   await assertNoDoctorConflict(input.doctorId, input.scheduledAt);
 
-  const appointment = await prisma.appointment.create({
+  return prisma.appointment.create({
     data: input,
     include: { patient: { select: { firstName: true, lastName: true, patientNumber: true } }, doctor: { select: { firstName: true, lastName: true } }, department: true },
   });
-
-  // Only notify the doctor if someone else scheduled it on their behalf —
-  // no point notifying a doctor about an appointment they booked themselves.
-  await notifyUser(
-    input.doctorId,
-    {
-      type: 'APPOINTMENT_ASSIGNED',
-      title: 'New appointment',
-      message: `${appointment.patient.firstName} ${appointment.patient.lastName} — ${new Date(appointment.scheduledAt).toLocaleString()}`,
-      link: '/appointments',
-    },
-    scheduledById
-  );
-
-  return appointment;
 }
 
 async function listAppointments(query: ListAppointmentsQuery) {
-  const { from, to, status, doctorId, patientId, page, pageSize } = query;
+  const { appointmentId, from, to, status, doctorId, patientId, page, pageSize } = query;
 
   const where: Prisma.AppointmentWhereInput = {
+    ...(appointmentId ? { id: appointmentId } : {}),
     ...(status ? { status } : {}),
     ...(doctorId ? { doctorId } : {}),
     ...(patientId ? { patientId } : {}),
@@ -116,14 +103,24 @@ async function updateAppointment(id: string, input: UpdateAppointmentInput) {
     await assertNoDoctorConflict(existing.doctorId, input.scheduledAt, id);
   }
 
-  return prisma.appointment.update({ where: { id }, data: input });
+  return prisma.appointment.update({
+    where: { id },
+    data: input,
+    include: { patient: { select: { firstName: true, lastName: true, patientNumber: true } } },
+  });
 }
 
 // --- Controller -------------------------------------------------------
 
 const create = asyncHandler(async (req: Request<unknown, unknown, CreateAppointmentInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
-  const appointment = await createAppointment(req.body, req.user.id);
+  const appointment = await createAppointment(req.body);
+  await notifyUsers([appointment.doctorId], {
+    type: 'APPOINTMENT_CREATED',
+    title: 'New appointment',
+    message: `A new appointment has been scheduled for ${appointment.patient.firstName} ${appointment.patient.lastName} (${appointment.patient.patientNumber}).`,
+    link: `/appointments?appointmentId=${encodeURIComponent(appointment.id)}`,
+  });
   await logAudit({ userId: req.user.id, action: 'APPOINTMENT_CREATED', resource: 'Appointment', resourceId: appointment.id, req });
   res.status(201).json({ success: true, message: 'Appointment scheduled.', data: { appointment } });
 });
@@ -136,6 +133,12 @@ const list = asyncHandler(async (req: Request<unknown, unknown, unknown, ListApp
 const update = asyncHandler(async (req: Request<{ id: string }, unknown, UpdateAppointmentInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
   const appointment = await updateAppointment(req.params.id, req.body);
+  await notifyUsers([appointment.doctorId], {
+    type: 'APPOINTMENT_UPDATED',
+    title: 'Appointment updated',
+    message: `The appointment for ${appointment.patient.firstName} ${appointment.patient.lastName} (${appointment.patient.patientNumber}) has been updated.`,
+    link: `/appointments?appointmentId=${encodeURIComponent(appointment.id)}`,
+  });
   await logAudit({ userId: req.user.id, action: 'APPOINTMENT_UPDATED', resource: 'Appointment', resourceId: appointment.id, req });
   res.json({ success: true, message: 'Appointment updated.', data: { appointment } });
 });
@@ -148,7 +151,7 @@ router.use(requireAuth());
 
 const canManage = requireRole(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.NURSE);
 
-router.get('/', list);
+router.get('/', validate(listAppointmentsQuerySchema, 'query'), list);
 router.post('/', canManage, validate(createAppointmentSchema), create);
 router.put('/:id', canManage, validate(updateAppointmentSchema), update);
 

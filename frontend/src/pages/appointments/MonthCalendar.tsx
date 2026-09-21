@@ -15,31 +15,8 @@ function isSameDay(a: Date, b: Date) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
-/**
- * Picks a sensible starting month: the nearest upcoming appointment's month
- * if there is one, otherwise the most recent past appointment's month,
- * otherwise just today. Without this, the calendar always opened on the
- * current month regardless of where appointments actually were — so an
- * appointment scheduled for a different month looked "missing" even though
- * it existed, until someone manually clicked forward/back to find it.
- */
-function pickInitialMonth(appointments: AppointmentItem[]): Date {
-  if (appointments.length === 0) return new Date();
-
-  const now = new Date();
-  const sorted = [...appointments].sort(
-    (a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime()
-  );
-
-  const nextUpcoming = sorted.find((a) => new Date(a.scheduledAt).getTime() >= now.getTime());
-  if (nextUpcoming) return new Date(nextUpcoming.scheduledAt);
-
-  // Everything is in the past — show the most recent one instead of today.
-  return new Date(sorted[sorted.length - 1].scheduledAt);
-}
-
 export function MonthCalendar({ appointments }: { appointments: AppointmentItem[] }) {
-  const [cursor, setCursor] = useState(() => pickInitialMonth(appointments));
+  const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
 
   const year = cursor.getFullYear();

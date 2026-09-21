@@ -3,16 +3,18 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, UserCog, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { isAxiosError } from 'axios';
-import { createStaff, listStaff, resetStaffPassword, setStaffActive } from '@/services/admin.service';
+import { createStaff, deactivateDemoAccounts, listStaff, resetStaffPassword, setStaffActive } from '@/services/admin.service';
 import { Badge } from '@/components/Badge';
 import { EmptyState } from '@/components/EmptyState';
 import { InitialsAvatar } from '@/components/InitialsAvatar';
 import { SkeletonTable } from '@/components/Skeletons';
 import { ROLE_LABELS, Role } from '@/types/auth';
+import { useAuth } from '@/hooks/useAuth';
 
 export default function StaffPage() {
+  const { user } = useAuth();
   const [showForm, setShowForm] = useState(false);
-  const [tempPasswordFor, setTempPasswordFor] = useState<{ name: string; password: string } | null>(null);
+  const [tempPasswordFor, setTempPasswordFor] = useState<{ name: string; password: string; emailSent: boolean } | null>(null);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({ queryKey: ['staff'], queryFn: () => listStaff({ pageSize: 100 }) });
@@ -23,15 +25,31 @@ export default function StaffPage() {
       queryClient.invalidateQueries({ queryKey: ['staff'] });
       toast.success('Staff account updated.');
     },
+    onError: () => toast.error('Could not update the staff account.'),
   });
 
   const resetPassword = useMutation({
     mutationFn: (id: string) => resetStaffPassword(id),
-    onSuccess: (tempPassword, id) => {
+    onSuccess: ({ tempPassword, emailSent }, id) => {
       const person = data?.staff.find((s) => s.id === id);
-      setTempPasswordFor({ name: person ? `${person.firstName} ${person.lastName}` : 'Staff member', password: tempPassword });
+      setTempPasswordFor({ name: person ? `${person.firstName} ${person.lastName}` : 'Staff member', password: tempPassword, emailSent });
+    },
+    onError: () => toast.error('Could not reset this password.'),
+  });
+
+  const deactivateDemos = useMutation({
+    mutationFn: deactivateDemoAccounts,
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['staff'] });
+      toast.success(`${count} demo account${count === 1 ? '' : 's'} deactivated.`);
+    },
+    onError: (err) => {
+      const message = isAxiosError(err) ? err.response?.data?.message : undefined;
+      toast.error(message ?? 'Could not deactivate demo accounts.');
     },
   });
+
+  const hasActiveDemoAccounts = data?.staff.some((staff) => staff.isDemo && staff.isActive) ?? false;
 
   return (
     <div>
@@ -40,16 +58,31 @@ export default function StaffPage() {
           <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Staff</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Manage staff accounts, roles, and access.</p>
         </div>
-        <button className="btn-primary" onClick={() => setShowForm(true)}>
-          <Plus className="h-4 w-4" />
-          Add staff
-        </button>
+        <div className="flex items-center gap-2">
+          {hasActiveDemoAccounts && (
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={Boolean(user?.isDemo) || deactivateDemos.isPending}
+              title={user?.isDemo ? 'Create and sign in with a non-demo administrator first.' : undefined}
+              onClick={() => {
+                if (window.confirm('Deactivate every demo account? Existing clinical records will be preserved.')) deactivateDemos.mutate();
+              }}
+            >
+              Deactivate demos
+            </button>
+          )}
+          <button className="btn-primary" onClick={() => setShowForm(true)}>
+            <Plus className="h-4 w-4" />
+            Add staff
+          </button>
+        </div>
       </div>
 
       {showForm && (
         <NewStaffForm
           onClose={() => setShowForm(false)}
-          onCreated={(name, password) => setTempPasswordFor({ name, password })}
+          onCreated={(name, password, emailSent) => setTempPasswordFor({ name, password, emailSent })}
         />
       )}
 
@@ -59,7 +92,9 @@ export default function StaffPage() {
             Temporary password for {tempPasswordFor.name}: <span className="font-mono">{tempPasswordFor.password}</span>
           </p>
           <p className="mt-1 text-xs text-amber-700">
-            Share this securely — it won't be shown again. In production this would be emailed directly instead.
+            {tempPasswordFor.emailSent
+              ? 'It was emailed to the staff member. This copy will not be shown again after dismissal.'
+              : 'Email delivery failed. Share this password securely; it will not be shown again after dismissal.'}
           </p>
           <button className="mt-2 text-xs font-medium text-amber-800 hover:underline" onClick={() => setTempPasswordFor(null)}>
             Dismiss
@@ -130,19 +165,21 @@ export default function StaffPage() {
 
 const ROLES: Role[] = ['ADMIN', 'DOCTOR', 'NURSE', 'RECEPTIONIST', 'LAB_TECHNICIAN', 'PHARMACIST'];
 
-function NewStaffForm({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string, password: string) => void }) {
+function NewStaffForm({ onClose, onCreated }: { onClose: () => void; onCreated: (name: string, password: string, emailSent: boolean) => void }) {
   const queryClient = useQueryClient();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<Role | ''>('');
+  const [initialPassword, setInitialPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const mutation = useMutation({
-    mutationFn: () => createStaff({ firstName, lastName, email, role }),
-    onSuccess: ({ user, tempPassword }) => {
+    mutationFn: () => createStaff({ firstName, lastName, email, role, initialPassword: initialPassword || undefined }),
+    onSuccess: ({ user, tempPassword, emailSent }) => {
       toast.success('Staff account created.');
       queryClient.invalidateQueries({ queryKey: ['staff'] });
-      onCreated(`${user.firstName} ${user.lastName}`, tempPassword);
+      onCreated(`${user.firstName} ${user.lastName}`, tempPassword, emailSent);
       onClose();
     },
     onError: (err) => {
@@ -156,6 +193,10 @@ function NewStaffForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
       onSubmit={(e) => {
         e.preventDefault();
         if (!firstName || !lastName || !email || !role) return toast.error('Fill in all fields.');
+        if (initialPassword && initialPassword !== confirmPassword) return toast.error('The passwords do not match.');
+        if (initialPassword && (initialPassword.length < 8 || !/[A-Z]/.test(initialPassword) || !/[0-9]/.test(initialPassword))) {
+          return toast.error('The initial password needs 8 characters, an uppercase letter, and a number.');
+        }
         mutation.mutate();
       }}
       className="card mt-6 space-y-4 p-5 animate-in"
@@ -191,6 +232,30 @@ function NewStaffForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
               </option>
             ))}
           </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="label">Initial password (optional)</label>
+          <input
+            type="password"
+            autoComplete="new-password"
+            className="input"
+            value={initialPassword}
+            onChange={(e) => setInitialPassword(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Leave blank to generate a secure temporary password.</p>
+        </div>
+        <div>
+          <label className="label">Confirm initial password</label>
+          <input
+            type="password"
+            autoComplete="new-password"
+            className="input"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            disabled={!initialPassword}
+          />
         </div>
       </div>
       <div className="flex justify-end gap-3 border-t border-slate-100 dark:border-slate-800 pt-4">

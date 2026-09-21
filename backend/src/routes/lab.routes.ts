@@ -7,8 +7,8 @@ import { AppError } from '../utils/AppError';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
+import { notifyRoles, notifyUsers } from '../services/notification.service';
 import { assertVisitBelongsToPatient } from '../services/relationshipValidation.service';
-import { notifyRole, notifyUser } from '../services/notification.service';
 
 // --- Validators -----------------------------------------------------------
 
@@ -48,19 +48,10 @@ async function createLabRequest(input: CreateLabRequestInput, doctorId: string) 
   if (!patient) throw AppError.notFound('Patient not found.');
   await assertVisitBelongsToPatient(input.visitId, input.patientId);
 
-  const labRequest = await prisma.labRequest.create({
+  return prisma.labRequest.create({
     data: { ...input, doctorId },
     include: { patient: { select: { firstName: true, lastName: true, patientNumber: true } } },
   });
-
-  await notifyRole(Role.LAB_TECHNICIAN, {
-    type: 'LAB_REQUEST_CREATED',
-    title: 'New lab request',
-    message: `${input.testName} requested for ${labRequest.patient.firstName} ${labRequest.patient.lastName}`,
-    link: '/laboratory',
-  });
-
-  return labRequest;
 }
 
 async function listLabRequests(query: ListLabRequestsQuery) {
@@ -111,10 +102,7 @@ async function updateLabRequestStatus(id: string, status: UpdateLabRequestStatus
 }
 
 async function createLabResult(input: CreateLabResultInput, technicianId: string) {
-  const labRequest = await prisma.labRequest.findUnique({
-    where: { id: input.labRequestId },
-    include: { patient: { select: { firstName: true, lastName: true } } },
-  });
+  const labRequest = await prisma.labRequest.findUnique({ where: { id: input.labRequestId } });
   if (!labRequest) throw AppError.notFound('Lab request not found.');
   if (labRequest.status !== 'IN_PROGRESS') {
     throw AppError.badRequest(
@@ -127,13 +115,6 @@ async function createLabResult(input: CreateLabResultInput, technicianId: string
     prisma.labRequest.update({ where: { id: input.labRequestId }, data: { status: 'COMPLETED' } }),
   ]);
 
-  await notifyUser(labRequest.doctorId, {
-    type: 'LAB_RESULT_READY',
-    title: 'Lab result ready',
-    message: `${labRequest.testName} result is ready for ${labRequest.patient.firstName} ${labRequest.patient.lastName}`,
-    link: '/laboratory',
-  });
-
   return result;
 }
 
@@ -142,6 +123,16 @@ async function createLabResult(input: CreateLabResultInput, technicianId: string
 const createRequest = asyncHandler(async (req: Request<unknown, unknown, CreateLabRequestInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
   const labRequest = await createLabRequest(req.body, req.user.id);
+  await notifyRoles(
+    [Role.LAB_TECHNICIAN],
+    {
+      type: 'LAB_REQUEST_CREATED',
+      title: 'New laboratory request',
+      message: `A new ${labRequest.testName} request is waiting for ${labRequest.patient.firstName} ${labRequest.patient.lastName} (${labRequest.patient.patientNumber}).`,
+      link: '/laboratory',
+    },
+    req.user.id
+  );
   await logAudit({ userId: req.user.id, action: 'LAB_REQUEST_CREATED', resource: 'LabRequest', resourceId: labRequest.id, req });
   res.status(201).json({ success: true, message: 'Lab test requested.', data: { labRequest } });
 });
@@ -161,6 +152,15 @@ const updateStatus = asyncHandler(
 const createResult = asyncHandler(async (req: Request<unknown, unknown, CreateLabResultInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
   const result = await createLabResult(req.body, req.user.id);
+  const completedRequest = await prisma.labRequest.findUnique({ where: { id: result.labRequestId }, select: { doctorId: true } });
+  if (completedRequest) {
+    await notifyUsers([completedRequest.doctorId], {
+      type: 'LAB_RESULT_COMPLETED',
+      title: 'Laboratory result available',
+      message: 'A laboratory result for a patient you requested testing for is now available.',
+      link: '/laboratory',
+    });
+  }
   await logAudit({ userId: req.user.id, action: 'LAB_RESULT_ADDED', resource: 'LabResult', resourceId: result.id, req });
   res.status(201).json({ success: true, message: 'Result recorded.', data: { result } });
 });
@@ -170,7 +170,7 @@ const createResult = asyncHandler(async (req: Request<unknown, unknown, CreateLa
 const router = Router();
 router.use(requireAuth());
 
-router.get('/requests', requireRole(Role.ADMIN, Role.DOCTOR, Role.LAB_TECHNICIAN), list);
+router.get('/requests', requireRole(Role.ADMIN, Role.DOCTOR, Role.LAB_TECHNICIAN), validate(listLabRequestsQuerySchema, 'query'), list);
 router.post('/requests', requireRole(Role.DOCTOR), validate(createLabRequestSchema), createRequest);
 router.put(
   '/requests/:id/status',

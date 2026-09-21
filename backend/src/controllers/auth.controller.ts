@@ -15,9 +15,11 @@ import type {
 
 const baseCookieOptions: CookieOptions = {
   httpOnly: true,
-  secure: true,
-  sameSite: 'none',
+  secure: env.COOKIE_SECURE,
+  sameSite: env.COOKIE_SAME_SITE,
+  domain: env.COOKIE_DOMAIN,
 };
+
 export const login = asyncHandler(async (req: Request<unknown, unknown, LoginInput>, res: Response) => {
   try {
     const { accessToken, refreshToken, user } = await authenticateUser(req.body);

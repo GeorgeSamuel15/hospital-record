@@ -7,7 +7,7 @@ import { AppError } from '../utils/AppError';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
-import { notifyRole } from '../services/notification.service';
+import { notifyRoles, notifyUsers } from '../services/notification.service';
 
 // --- Validators -----------------------------------------------------------
 
@@ -54,19 +54,10 @@ async function admitPatient(input: CreateAdmissionInput) {
   if (alreadyAdmitted) throw AppError.conflict('This patient already has an active admission.');
 
   const { doctorId, ...rest } = input;
-  const admission = await prisma.admission.create({
+  return prisma.admission.create({
     data: { ...rest, admittingDoctorId: doctorId },
     include: { patient: { select: { firstName: true, lastName: true, patientNumber: true } } },
   });
-
-  await notifyRole(Role.ADMIN, {
-    type: 'ADMISSION_CREATED',
-    title: 'New admission',
-    message: `${admission.patient.firstName} ${admission.patient.lastName} admitted to ${admission.ward}, room ${admission.room}`,
-    link: '/admissions',
-  });
-
-  return admission;
 }
 
 async function listAdmissions(query: ListAdmissionsQuery) {
@@ -106,6 +97,21 @@ async function dischargePatient(id: string, input: DischargeAdmissionInput, disc
 const create = asyncHandler(async (req: Request<unknown, unknown, CreateAdmissionInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
   const admission = await admitPatient(req.body);
+  await notifyUsers([req.body.doctorId], {
+    type: 'ADMISSION_CREATED',
+    title: 'Patient admitted',
+    message: `${admission.patient.firstName} ${admission.patient.lastName} (${admission.patient.patientNumber}) has been admitted.`,
+    link: '/admissions',
+  });
+  await notifyRoles(
+    [Role.NURSE],
+    {
+      type: 'ADMISSION_CREATED',
+      title: 'New patient admission',
+      message: `${admission.patient.firstName} ${admission.patient.lastName} (${admission.patient.patientNumber}) has been admitted and may require nursing care.`,
+      link: '/admissions',
+    }
+  );
   await logAudit({ userId: req.user.id, action: 'ADMISSION_CREATED', resource: 'Admission', resourceId: admission.id, req });
   res.status(201).json({ success: true, message: 'Patient admitted.', data: { admission } });
 });
@@ -118,6 +124,12 @@ const list = asyncHandler(async (req: Request<unknown, unknown, unknown, ListAdm
 const discharge = asyncHandler(async (req: Request<{ id: string }, unknown, DischargeAdmissionInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
   const admission = await dischargePatient(req.params.id, req.body, req.user.id);
+  await notifyUsers([admission.admittingDoctorId], {
+    type: 'ADMISSION_DISCHARGED',
+    title: 'Patient discharged',
+    message: 'A patient you admitted has been discharged.',
+    link: '/admissions',
+  });
   await logAudit({ userId: req.user.id, action: 'ADMISSION_DISCHARGED', resource: 'Admission', resourceId: admission.id, req });
   res.json({ success: true, message: 'Patient discharged.', data: { admission } });
 });
@@ -129,7 +141,7 @@ router.use(requireAuth());
 
 const canManage = requireRole(Role.ADMIN, Role.DOCTOR, Role.NURSE);
 
-router.get('/', list);
+router.get('/', validate(listAdmissionsQuerySchema, 'query'), list);
 router.post('/', canManage, validate(createAdmissionSchema), create);
 router.put('/:id/discharge', canManage, validate(dischargeAdmissionSchema), discharge);
 

@@ -1,6 +1,8 @@
 import { Request } from 'express';
 import { prisma } from '../config/prisma';
 
+type AuditRequest = Pick<Request, 'headers' | 'socket'>;
+
 export type AuditAction =
   | 'LOGIN'
   | 'LOGIN_FAILED'
@@ -25,8 +27,10 @@ export type AuditAction =
   | 'ADMISSION_DISCHARGED'
   | 'STAFF_CREATED'
   | 'STAFF_UPDATED'
+  | 'STAFF_PASSWORD_RESET'
   | 'STAFF_DEACTIVATED'
   | 'STAFF_ACTIVATED'
+  | 'DEMO_ACCOUNTS_DEACTIVATED'
   | 'DEPARTMENT_CREATED'
   | 'DEPARTMENT_UPDATED'
   | 'SETTINGS_UPDATED';
@@ -37,10 +41,10 @@ interface LogAuditParams {
   resource: string;
   resourceId?: string | null;
   metadata?: Record<string, unknown>;
-  req?: Request<any, any, any, any, any>;
+  req?: AuditRequest;
 }
 
-export function getClientIp(req: Request): string | undefined {
+export function getClientIp(req: AuditRequest): string | undefined {
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
   return req.socket.remoteAddress ?? undefined;

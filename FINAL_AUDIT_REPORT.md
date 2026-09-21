@@ -5,6 +5,12 @@ issue found before any code was changed. This report documents what was
 actually done about it, and — critically — what verification each claim
 rests on.
 
+> **Follow-up verification — 2026-09-21:** The earlier execution limitations
+> recorded in this report have now been cleared. Dependencies installed,
+> Prisma Client generation, lint, all tests, production builds, and
+> production dependency audits were run. GitHub Actions and Dependabot were
+> also added. The detailed current results appear under **Testing** below.
+
 ---
 
 ## Fixed
@@ -39,19 +45,18 @@ rests on.
 
 ---
 
-## Remaining (intentionally not addressed)
+## Remaining limitations
 
-- **No CI pipeline** runs the test suite automatically. Out of scope for this
-  audit pass — flagged in the main README as a known gap.
-- **No automated dependency vulnerability scanning.**
-- **Docker images remain unbuilt/untested** — the compose and Dockerfile
-  changes in this audit (H4, H5) were reviewed by reading, not by running
-  `docker compose up`, since this sandbox has no network access to pull base
-  images.
+- **Docker images remain runtime-untested** — source builds pass, but the
+  complete Compose stack still needs a build and smoke test in an environment
+  that can pull images and run a disposable PostgreSQL database.
 - **The appointment conflict window is slot-based, not calendar-aware of
   doctor working hours** — it prevents double-booking within one slot width
   of an existing appointment, but doesn't know about lunch breaks, shift
   ends, or days off. That's a reasonable v1, not a full scheduling engine.
+- **Operational controls are external** — backups, log aggregation, alerts,
+  TLS termination, and a professional penetration/load test must be supplied
+  by the production hosting environment.
 
 ---
 
@@ -100,45 +105,46 @@ no live database required):
   patient number" test mocked the now-removed `count()`-based logic; fixed
   to mock the new atomic counter instead (caught by re-reading the test
   against the H6 change, not by running it).
+- `staffAccountFlows.test.ts` — verifies administrator-supplied initial
+  passwords, password-policy rejection, demo-admin protection, and bulk demo
+  deactivation without deleting records.
+- Updated `statusTransitions.test.ts` — verifies appointment-ID filtering and
+  that appointment notifications contain an exact deep link.
+- Updated `app.test.ts` — verifies allowed origins receive CORS headers and
+  untrusted origins are rejected.
+- `AppointmentsPage.test.tsx` — verifies a notification opens and highlights
+  exactly the selected appointment and that “Show all” clears the focus.
 
-### What was and wasn't actually run
+### Verification actually run on 2026-09-21
 
 | Check | Status | Detail |
 |---|---|---|
-| `npm install` (backend/frontend) | **NOT RUN** | No network access in this sandbox. `node_modules` does not exist for either package. |
-| TypeScript check (`tsc --noEmit`) | **PARTIAL / INCONCLUSIVE** | Attempted with the sandbox's globally-installed `tsc`. First attempt failed on a TypeScript-version mismatch unrelated to this code (`moduleResolution=node10` deprecation — the project targets TS ^5.6.2, the global tool is a newer 6.x). Bypassing that surfaced only "cannot find module" errors for every third-party import (`express`, `zod`, `@prisma/client`, `jest`, etc.) — expected and uninformative given `node_modules` doesn't exist. **This did not produce a real signal on whether the code type-checks.** |
-| ESLint | **NOT RUN** | Same dependency blocker. |
-| Frontend build (`vite build`) | **NOT RUN** | Same blocker. |
-| Backend build (`tsc -p tsconfig.json`) | **NOT RUN** | Same blocker. |
-| Prisma validation (`prisma validate`) | **NOT RUN** | Requires the `prisma` CLI, which isn't installed. The schema was reviewed manually for the `IdSequence`/`SystemSetting` additions (correct field types, no `@@map` mismatch with the raw SQL in `idSequence.service.ts` — verified by inspection). |
-| Prisma generate | **NOT RUN** | Same blocker. |
-| Unit/integration tests (`npm test`) | **NOT RUN** | Same blocker — Jest itself isn't installed. |
-| Manual code review / cross-reference | **DONE** | Every changed file was re-read after editing. Ran an automated unused-import sweep (a Node script checking each imported identifier appears more than once in its file) across every backend file touched this session — zero flagged. Verified call-site signatures match function signatures after refactors (e.g. `admitPatient()`'s new signature, `getPatientForRole` replacing `getPatientById` in the controller). Caught and fixed three real bugs *during this review process itself*: a stray field that would have broken Prisma's typed `create()` in the admission fix, a seed/counter collision introduced by the H6 fix, and a test mock that would have silently misrepresented which user was "the doctor" in an appointment-conflict test. |
+| Dependency install | **PASS** | Lockfiles generated for backend and frontend. |
+| Prisma Client generation | **PASS** | Backend client generated successfully. |
+| Backend lint | **PASS** | ESLint completed with no errors. |
+| Backend tests | **PASS** | 11 suites, 55/55 tests. |
+| Backend production build | **PASS** | TypeScript compilation completed. |
+| Backend production audit | **PASS** | Zero vulnerabilities. |
+| Frontend lint | **PASS** | No errors; two non-blocking Fast Refresh export warnings. |
+| Frontend tests | **PASS** | 4 files, 12/12 tests. |
+| Frontend production build | **PASS** | Vite build completed; bundle-size warning remains. |
+| Frontend high-severity audit | **PASS** | No high/critical findings. Two moderate React Router advisories remain; npm's offered remediation is a breaking v7 upgrade. |
 
-**Bottom line on Phase 4:** static checks could not be genuinely run in this
-environment, for the same reason noted throughout this project's history —
-no network access means no installed dependencies, and no installed
-dependencies means no compiler, linter, or test runner actually executes.
-What's reported above as "DONE" is careful manual review, which is real
-verification but a different and weaker guarantee than a passing build.
-**Run `npm install && npm run prisma:generate && npm test` yourself as the
-true first check** — if anything surfaces, it's far more likely to be a
-small, fixable mismatch than a structural problem, given the density of
-manual cross-checking this went through, but it hasn't been proven by
-execution.
+The test suites use mocked Prisma and do not replace a live PostgreSQL
+migration test or browser smoke test across all six roles. Those are the next
+deployment-gate checks, along with exercising the Docker images themselves.
 
 ---
 
 ## Known limitations
 
-- The appointment conflict check and the two status state machines are new
-  logic added in direct response to this audit — they've never been
-  exercised against a real database, only against a mocked one in the new
-  test files (which themselves haven't been executed, per above).
+- The appointment conflict check and the two status state machines have been
+  exercised by passing tests, but only against mocked Prisma—not a live
+  database.
 - Role-based patient field projection (C1) changes the *shape* of the
   `Patient` object the frontend receives for non-clinical roles. The
-  frontend was updated defensively (optional fields simply don't render),
-  but this hasn't been visually verified in a running browser.
+  frontend was updated defensively (optional fields simply don't render), but
+  this still needs a browser smoke test for every role.
 - This audit focused on the specific items enumerated in the audit brief.
   It is not a certification that no other issues exist — it's a record of
   what was actually checked and what was found.

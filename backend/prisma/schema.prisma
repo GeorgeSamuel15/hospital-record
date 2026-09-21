@@ -99,11 +99,27 @@ model User {
   admissionsAsDoctor  Admission[]      @relation("AdmissionDoctor")
   discharges          Admission[]      @relation("AdmissionDischargedBy")
   auditLogs           AuditLog[]
-  notifications       Notification[]
   passwordResetTokens PasswordResetToken[]
+  notifications      Notification[]
 
   @@index([role])
   @@index([email])
+}
+
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
 }
 
 model PasswordResetToken {
@@ -407,33 +423,6 @@ model SystemSetting {
   sessionTimeoutMinutes   Int      @default(15)
   updatedAt               DateTime @updatedAt
   updatedById             String?
-}
-
-// ---------------------------------------------------------------------------
-// NOTIFICATIONS
-// ---------------------------------------------------------------------------
-
-enum NotificationType {
-  LAB_REQUEST_CREATED
-  LAB_RESULT_READY
-  PRESCRIPTION_CREATED
-  APPOINTMENT_ASSIGNED
-  ADMISSION_CREATED
-}
-
-model Notification {
-  id        String           @id @default(cuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      NotificationType
-  title     String
-  message   String
-  link      String? // frontend route to deep-link to, e.g. "/laboratory"
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
-
-  @@index([userId, isRead])
-  @@index([createdAt])
 }
 
 // ---------------------------------------------------------------------------

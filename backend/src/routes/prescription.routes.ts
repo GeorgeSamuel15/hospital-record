@@ -8,7 +8,7 @@ import { requireAuth, requireRole } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { logAudit } from '../services/audit.service';
 import { assertVisitBelongsToPatient } from '../services/relationshipValidation.service';
-import { notifyRole } from '../services/notification.service';
+import { notifyRoles, notifyUsers } from '../services/notification.service';
 
 // --- Validators -----------------------------------------------------------
 
@@ -49,7 +49,7 @@ async function createPrescription(input: CreatePrescriptionInput, doctorId: stri
   if (!patient) throw AppError.notFound('Patient not found.');
   await assertVisitBelongsToPatient(input.visitId, input.patientId);
 
-  const prescription = await prisma.prescription.create({
+  return prisma.prescription.create({
     data: {
       patientId: input.patientId,
       visitId: input.visitId,
@@ -58,15 +58,6 @@ async function createPrescription(input: CreatePrescriptionInput, doctorId: stri
     },
     include: { items: true, patient: { select: { firstName: true, lastName: true, patientNumber: true } } },
   });
-
-  await notifyRole(Role.PHARMACIST, {
-    type: 'PRESCRIPTION_CREATED',
-    title: 'New prescription',
-    message: `New prescription for ${prescription.patient.firstName} ${prescription.patient.lastName}`,
-    link: '/prescriptions',
-  });
-
-  return prescription;
 }
 
 async function listPrescriptions(query: ListPrescriptionsQuery) {
@@ -128,6 +119,16 @@ async function updatePrescriptionStatus(id: string, status: UpdatePrescriptionSt
 const create = asyncHandler(async (req: Request<unknown, unknown, CreatePrescriptionInput>, res: Response) => {
   if (!req.user) throw AppError.unauthorized();
   const prescription = await createPrescription(req.body, req.user.id);
+  await notifyRoles(
+    [Role.PHARMACIST],
+    {
+      type: 'PRESCRIPTION_CREATED',
+      title: 'New prescription',
+      message: `A new prescription is ready for ${prescription.patient.firstName} ${prescription.patient.lastName} (${prescription.patient.patientNumber}).`,
+      link: '/prescriptions',
+    },
+    req.user.id
+  );
   await logAudit({ userId: req.user.id, action: 'PRESCRIPTION_CREATED', resource: 'Prescription', resourceId: prescription.id, req });
   res.status(201).json({ success: true, message: 'Prescription created.', data: { prescription } });
 });
@@ -142,6 +143,12 @@ const updateStatus = asyncHandler(
     if (!req.user) throw AppError.unauthorized();
     const prescription = await updatePrescriptionStatus(req.params.id, req.body.status, req.user.id);
     if (req.body.status === 'DISPENSED') {
+      await notifyUsers([prescription.doctorId], {
+        type: 'PRESCRIPTION_DISPENSED',
+        title: 'Prescription dispensed',
+        message: 'A prescription you created has been dispensed by the pharmacy.',
+        link: '/prescriptions',
+      });
       await logAudit({ userId: req.user.id, action: 'PRESCRIPTION_DISPENSED', resource: 'Prescription', resourceId: prescription.id, req });
     }
     res.json({ success: true, message: 'Prescription updated.', data: { prescription } });

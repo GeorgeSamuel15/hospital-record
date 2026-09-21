@@ -11,8 +11,8 @@ export async function listStaff(params: { role?: string; search?: string; page?:
   return res.data.data!;
 }
 
-export async function createStaff(input: { firstName: string; lastName: string; email: string; phone?: string; role: string; departmentId?: string }) {
-  const res = await api.post<ApiResponse<{ user: StaffMember; tempPassword: string }>>('/staff', input);
+export async function createStaff(input: { firstName: string; lastName: string; email: string; phone?: string; role: string; departmentId?: string; initialPassword?: string }) {
+  const res = await api.post<ApiResponse<{ user: StaffMember; tempPassword: string; emailSent: boolean }>>('/staff', input);
   return res.data.data!;
 }
 
@@ -27,8 +27,13 @@ export async function setStaffActive(id: string, active: boolean) {
 }
 
 export async function resetStaffPassword(id: string) {
-  const res = await api.put<ApiResponse<{ tempPassword: string }>>(`/staff/${id}/reset-password`);
-  return res.data.data!.tempPassword;
+  const res = await api.put<ApiResponse<{ tempPassword: string; emailSent: boolean }>>(`/staff/${id}/reset-password`);
+  return res.data.data!;
+}
+
+export async function deactivateDemoAccounts() {
+  const res = await api.put<ApiResponse<{ count: number }>>('/staff/demo/deactivate-all');
+  return res.data.data!.count;
 }
 
 // --- Departments ----------------------------------------------------------

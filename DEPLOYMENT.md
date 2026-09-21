@@ -1,9 +1,10 @@
 # Deployment Guide
 
 The README covers local development. This document covers what changes for a
-real deployment — none of this has been executed in the sandbox this project
-was built in (no network access), so treat it as a well-reasoned starting
-point to adapt, not a battle-tested runbook.
+real deployment. Package installation, lint, automated tests, Prisma Client
+generation, and source builds were verified on 2026-09-21. The Docker stack
+and a live PostgreSQL/browser deployment still require an environment-level
+smoke test.
 
 ## 1. Architecture
 
@@ -31,18 +32,42 @@ and the frontend together. For production use:
    export JWT_REFRESH_SECRET=$(node -e "console.log(require('crypto').randomBytes(48).toString('hex'))")
    docker compose up -d
    ```
-2. Set `COOKIE_SECURE=true` and `NODE_ENV=production` once TLS is in place
-   (cookies marked `secure` are dropped by browsers over plain HTTP).
+2. Set `NODE_ENV=production`; the backend then forces secure cookies. Use
+   `COOKIE_SAME_SITE=none` when frontend and API use different origins, or
+   `lax` when they share a site. Set `COOKIE_DOMAIN` only when a shared parent
+   domain is required—never set it to `localhost` in production.
 3. Set real `SMTP_*` values so password resets and staff welcome emails
    actually deliver — see `.env.example`. Without these, the app still
    works, but reset links only ever appear in the backend container logs.
-4. Point `FRONTEND_URL` (backend) and `VITE_API_URL` (frontend build arg) at
-   your real public domains, not `localhost`.
+4. Set backend `APP_ORIGINS` to the exact comma-separated trusted frontend
+   origins and point frontend `VITE_API_URL` at the public backend URL. Keep
+   `FRONTEND_URL` set to the primary frontend URL for reset/welcome links.
 5. Don't rely on the compose file's inline `migrate deploy && db seed`
    command for a real database you care about — seeding creates demo
    accounts with a known password. Run migrations as a separate one-off
    step and skip seeding (or seed only once, on an empty database, and
    then disable the demo accounts).
+
+### Render backend + Vercel frontend
+
+The server binds to `0.0.0.0` and honors Render's injected `PORT`. For a
+typical split deployment, configure:
+
+```dotenv
+# Backend (Render)
+NODE_ENV=production
+APP_ORIGINS=https://your-app.vercel.app
+FRONTEND_URL=https://your-app.vercel.app
+COOKIE_SAME_SITE=none
+
+# Frontend (Vercel build variable)
+VITE_API_URL=https://your-api.onrender.com/api
+```
+
+The included `frontend/vercel.json` rewrites unknown paths to `index.html`,
+so bookmarked routes and notification deep links resolve through the SPA.
+After changing either origin, update both environment configurations and
+redeploy; the CORS allowlist uses exact origins.
 
 ## 3. Reverse proxy (nginx example)
 
@@ -120,8 +145,10 @@ deployment:
   auth, no in-memory session store), so it should scale horizontally behind
   a load balancer without code changes, but this hasn't been tested under
   load.
-- **No dependency vulnerability scanning** (`npm audit`, Snyk, Dependabot,
-  etc.) wired into CI.
+- **Dependency checks are not a full security audit** — GitHub Actions runs
+  production `npm audit` checks and Dependabot proposes weekly updates, but a
+  healthcare deployment still needs professional penetration testing and a
+  documented vulnerability-response process.
 - **No log aggregation** — `morgan` logs to stdout; pipe that into your
   platform's log collector (CloudWatch, Datadog, etc.) rather than reading
   container logs by hand in production.

@@ -29,8 +29,9 @@ gaps have been addressed:**
   database) covering `AppError`, password hashing, JWT round-trips, the
   validation middleware, the patient service, and a Supertest integration
   test against the actual Express app. A Vitest + Testing Library suite for
-  the frontend covers a utility function, a component, and the login form's
-  validation behavior. See "Running tests" below.
+  the frontend covers shared utilities/components, login validation, and
+  appointment notification deep-linking. The current verified total is
+  **55 backend tests plus 12 frontend tests**. See "Running tests" below.
 - **Docker Compose** — `docker-compose.yml` plus Dockerfiles for both
   frontend (nginx) and backend, for a one-command local stack.
 - **Email service** — a real `EmailService` (`nodemailer`-based) wired into
@@ -40,27 +41,34 @@ gaps have been addressed:**
   now rather than only returning tokens in API responses.
 - **Deployment guide** — see `DEPLOYMENT.md` for reverse proxy/TLS,
   secrets management, and database guidance beyond local dev.
+- **CI and dependency checks** — GitHub Actions now runs lint, tests, builds,
+  Prisma generation, and production dependency audits for both packages;
+  Dependabot is configured for weekly npm and Actions updates.
+- **Reliable appointment notifications** — appointment notifications now
+  carry the appointment ID, use in-app navigation, and open a focused,
+  highlighted record with clear not-found/retry behavior.
+- **Safer staff lifecycle** — administrators can set or generate an initial
+  password, recover it even if email delivery fails, reset credentials with
+  token invalidation, and bulk-deactivate all demo accounts without deleting
+  their clinical history.
 
 ## What's still genuinely not done
 
 Being direct rather than declaring total completion:
 
-1. **Never actually executed.** This sandbox has no network access, so none
-   of this — including the new test suite — has been run. I've reviewed it
-   carefully (cross-checked imports, mock setup, Jest/Vitest config,
-   real vs. mocked Prisma boundaries), but "written correctly" and "verified
-   by running" are different claims, and I can only make the first one. Run
-   `npm test` in both `backend/` and `frontend/` as your first step — if
-   anything fails, bring it back here.
-2. **No CI pipeline** — the tests exist but nothing runs them automatically
-   on push. Wiring up GitHub Actions (or similar) to run `npm test` in both
-   packages would be a reasonable next step.
-3. **No dependency vulnerability scanning**, no load testing, no
-   penetration testing — called out explicitly in `DEPLOYMENT.md` rather
-   than glossed over.
-4. **Docker images are untested** — written to be correct (multi-stage
-   builds, Prisma engine files copied correctly, nginx SPA fallback) but,
-   again, never actually built or run.
+1. **No live-database/browser end-to-end run yet.** Unit and integration
+   suites use mocked Prisma, so production migrations and all six roles still
+   need a final smoke test against a disposable PostgreSQL database and a
+   running browser build.
+2. **No load test or professional penetration test.** CI now performs
+   production dependency audits, but that does not replace an independent
+   security review for a system holding patient records.
+3. **Docker images are not runtime-verified here.** The source builds pass,
+   but the complete Compose stack still needs to be built and smoke-tested
+   in an environment that can pull the base images.
+4. **Operations remain deployment-owned.** Automated database backups,
+   log aggregation, alerting, and health-check restart policies must be
+   configured in the chosen hosting platform.
 
 ## What's genuinely solid
 
@@ -73,7 +81,7 @@ Being direct rather than declaring total completion:
   resource ID, timestamp, and IP address, and the admin-only Audit Logs page
   can search them.
 - Patient numbers (`PAT-000001`) and employee IDs (`EMP-000001`) are
-  auto-generated with collision retry.
+  generated with race-safe atomic database counters.
 - Centralized error handling returns the `{ success, message }` shape from
   Section 22 everywhere, with Prisma errors (duplicate emails, missing
   records) translated into clean messages rather than leaking internals.
@@ -213,12 +221,17 @@ validation middleware, the patient service's business logic (empty-field
 stripping, 404 handling), an integration test against the real Express app
 via Supertest, and — from the security audit — role-based patient data
 projection, the visit/patient relationship guard, the prescription/lab
-status state machines, appointment conflict detection, and RBAC boundaries
-for the exact scenarios named in the audit brief (Receptionist/Pharmacist
-cannot create diagnoses, Lab Technician/Nurse cannot create prescriptions,
-non-admins cannot read the audit trail, deactivated users are locked out).
-Frontend tests cover the `calculateAge` utility, the `InitialsAvatar`
-component, and the login form's validation behavior.
+status state machines, appointment conflict detection, appointment-ID
+filtering, notification links, staff account creation/reset, demo-account
+deactivation, CORS policy, and RBAC boundaries for the exact scenarios named
+in the audit brief (Receptionist/Pharmacist cannot create diagnoses, Lab
+Technician/Nurse cannot create prescriptions, non-admins cannot read the
+audit trail, deactivated users are locked out). Frontend tests cover the
+`calculateAge` utility, the `InitialsAvatar` component, login validation, and
+opening the exact appointment selected from a notification.
+
+The verified result on 2026-09-21 is **55/55 backend tests and 12/12 frontend
+tests passing**, with lint and production builds passing in both packages.
 
 ## Demo credentials
 
@@ -278,6 +291,7 @@ this pattern for real deployments.
 | PUT    | `/api/staff/:id/deactivate`     | Admin | Deactivate an account |
 | PUT    | `/api/staff/:id/activate`       | Admin | Reactivate an account |
 | PUT    | `/api/staff/:id/reset-password` | Admin | Force a password reset |
+| PUT    | `/api/staff/demo/deactivate-all` | Non-demo Admin | Deactivate all demo accounts while preserving records |
 | GET    | `/api/departments`              | Yes | List departments |
 | POST   | `/api/departments`              | Admin | Create a department |
 | PUT    | `/api/departments/:id`          | Admin | Update a department |
@@ -286,18 +300,14 @@ this pattern for real deployments.
 | GET    | `/api/dashboard/registration-trend` | Yes | 14-day patient registration trend |
 | GET    | `/api/dashboard/todays-schedule`| Yes | Today's appointments |
 | GET    | `/api/dashboard/pending-lab-tests` | Yes | Outstanding lab requests |
-| GET    | `/api/dashboard/recent-activity`| Yes | Recent audit log entries |
+| GET    | `/api/dashboard/recent-activity`| Admin | Recent audit log entries |
 | GET    | `/api/settings`                 | Yes | Read system settings |
 | PUT    | `/api/settings`                 | Admin | Update system settings |
 | GET    | `/api/staff-directory`          | Yes | Minimal staff lookup (id/name/role/department) for populating dropdowns |
-| GET    | `/api/notifications`            | Yes | Your own notifications (always scoped to the caller) |
-| GET    | `/api/notifications/unread-count` | Yes | Your unread count |
-| PUT    | `/api/notifications/:id/read`   | Yes | Mark one notification read |
-| PUT    | `/api/notifications/read-all`   | Yes | Mark all of yours read |
 
-Every backend endpoint from the original spec is now implemented and mounted
-in `app.ts`. What remains is frontend UI for several of these — see the
-roadmap below.
+Every backend endpoint from the original spec is implemented and mounted in
+`app.ts`, with corresponding frontend workflows for the core record,
+scheduling, laboratory, prescription, admission, staff, and settings flows.
 
 ## Build plan / roadmap
 
@@ -314,7 +324,7 @@ roadmap below.
 - [x] **Phase 11** — Staff/department admin (create/deactivate/reset password)
 - [x] **Phase 12** — Dashboard analytics (stat cards, 14-day trend chart, today's schedule, pending labs, recent activity)
 - [x] **Phase 13** — Security hardening (see below)
-- [x] **Phase 14** — Testing — Jest+Supertest (backend, mocked Prisma) and Vitest+RTL (frontend); written but not yet executed (no network in the build sandbox — run `npm test` yourself first)
+- [x] **Phase 14** — Testing — Jest+Supertest (backend, mocked Prisma) and Vitest+RTL (frontend); 67 tests executed and passing on 2026-09-21
 - [x] **Phase 15** — Final UI polish — dark mode, shaped skeleton loaders, and fade-in micro-interactions added; a full month-grid calendar replaces the day-list-only Appointments view
 
 ### Phase 13 security checklist (self-review, not a professional audit)
@@ -324,25 +334,30 @@ roadmap below.
 - [x] Zod validation on every write endpoint
 - [x] Centralized error handler never leaks stack traces (dev mode shows
       messages; production mode returns a generic message)
-- [x] `httpOnly`, `sameSite=lax` cookies for both access and refresh tokens
+- [x] `httpOnly` cookies for access and refresh tokens; production defaults
+      to `secure` + `sameSite=none` for cross-origin hosting, while local
+      development defaults to `sameSite=lax`
 - [x] Rate limiting: stricter on `/auth/*`, general limiter on everything else
-- [x] `helmet()` security headers, CORS locked to `FRONTEND_URL`
+- [x] `helmet()` security headers, proxy trust in production, and explicit
+      CORS allowlisting via `APP_ORIGINS`/`FRONTEND_URL`
 - [x] Audit logging on every sensitive action with IP address
 - [x] `.env` git-ignored, `.env.example` has no real secrets
-- [ ] Not done: dependency vulnerability scanning, penetration testing, HTTPS
-      termination/reverse proxy config (this repo is dev-only; a real
-      deployment needs a reverse proxy, TLS, and secret management beyond
-      `.env` files)
+- [x] GitHub Actions production dependency audits and weekly Dependabot
+      updates
+- [ ] Still external: professional penetration testing and TLS termination;
+      production also needs managed secrets, backups, and monitoring
 
 ### Phase 14 testing note (updated)
 
-A real test suite now exists for both backend and frontend (see "Running
-tests" above). It was written but not executed in this sandbox, since the
-sandbox has no network access to install the test runners. Treat your first
-`npm test` run as the actual first execution of these tests — if something
-fails, it's likely a small mismatch (an import path, a mock shape) rather
-than a fundamental design problem, since the logic under test mirrors code
-that was cross-checked by hand.
+A real test suite exists for both backend and frontend (see "Running tests"
+above). Dependencies were installed, Prisma Client generated, lint/tests/
+production builds executed, and production dependency audits run on
+2026-09-21. Backend: 55 tests passed and zero production vulnerabilities.
+Frontend: 12 tests passed; the high-severity audit threshold passed, with two
+moderate React Router advisories retained because npm's available fix is a
+breaking v7 upgrade. The app is client-rendered (not SSR), and notification
+navigation accepts only same-app absolute paths, reducing exposure while that
+upgrade is planned.
 
 ## Troubleshooting
 
@@ -351,9 +366,32 @@ that was cross-checked by hand.
   `JWT_REFRESH_SECRET` (must be ≥32 characters) or `DATABASE_URL`.
 - **`P1001: Can't reach database server`** — Postgres isn't running, or
   `DATABASE_URL` doesn't match its host/port/credentials.
-- **CORS errors in the browser console** — make sure `FRONTEND_URL` in the
-  backend `.env` exactly matches the URL the frontend is served from
-  (including port).
+- **CORS errors in the browser console** — make sure the exact frontend
+  origin (scheme, host, and port) appears in backend `APP_ORIGINS`; use a
+  comma-separated list when serving multiple trusted frontends. The legacy
+  single `FRONTEND_URL` value remains supported.
 - **Login succeeds but `/auth/me` returns 401** — check that
   `COOKIE_SECURE=false` in development (cookies marked `secure` won't be
-  sent over plain `http://localhost`).
+  sent over plain `http://localhost`). In production, leave secure cookies
+  enabled and use HTTPS; `COOKIE_SAME_SITE=none` supports separate Render and
+  Vercel origins.
+
+## Notifications
+
+The application includes staff notifications for prescriptions, laboratory
+requests/results, appointments, and admissions. Notifications are stored in
+PostgreSQL and displayed from the dashboard bell. The frontend polls every
+15 seconds. Appointment notifications include the appointment ID; selecting
+one navigates without a full page reload and opens a focused, highlighted
+appointment record. Invalid or unavailable targets show an explicit retry or
+not-found state instead of silently displaying an unrelated list.
+
+After updating an existing database, run:
+
+```bash
+cd backend
+npx prisma migrate deploy
+npx prisma generate
+```
+
+For development, `npx prisma migrate dev` is also supported.
