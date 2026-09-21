@@ -131,4 +131,60 @@ describe('Appointment conflict detection (fixes H3)', () => {
     expect(res.status).toBe(409);
     expect(prismaMock.appointment.create).not.toHaveBeenCalled();
   });
+
+  it('filters by appointmentId so a notification can load its exact appointment', async () => {
+    const cookie = authCookieFor('DOCTOR');
+    const appointment = {
+      id: 'appointment_1',
+      doctorId: 'user_doctor',
+      patientId: 'patient_1',
+      scheduledAt: new Date('2026-09-01T10:00:00Z'),
+      reason: 'Follow-up',
+      status: 'SCHEDULED',
+      patient: { firstName: 'Ngozi', lastName: 'Eze', patientNumber: 'PAT-000001' },
+      doctor: { firstName: 'Test', lastName: 'User' },
+      department: null,
+    };
+    prismaMock.$transaction.mockResolvedValue([1, [appointment]] as never);
+
+    const res = await request(app)
+      .get('/api/appointments?appointmentId=appointment_1&pageSize=1')
+      .set('Cookie', cookie);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.appointments).toHaveLength(1);
+    expect(prismaMock.appointment.count).toHaveBeenCalledWith({ where: { id: 'appointment_1' } });
+    expect(prismaMock.appointment.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'appointment_1' }, take: 1 }));
+  });
+
+  it('stores an appointment-specific notification link when an appointment is created', async () => {
+    const cookie = authCookieFor('RECEPTIONIST');
+    registerUser({ id: 'doctor_1', role: 'DOCTOR', email: 'doc@hospital.demo', firstName: 'Bola', lastName: 'Adeyemi', isActive: true });
+    prismaMock.patient.findUnique.mockResolvedValue({ id: 'patient_1' } as never);
+    prismaMock.systemSetting.findFirst.mockResolvedValue({ appointmentSlotMinutes: 30 } as never);
+    prismaMock.appointment.findFirst.mockResolvedValue(null);
+    prismaMock.appointment.create.mockResolvedValue({
+      id: 'appointment_1',
+      doctorId: 'doctor_1',
+      patient: { firstName: 'Ngozi', lastName: 'Eze', patientNumber: 'PAT-000001' },
+    } as never);
+    prismaMock.notification.create.mockResolvedValue({ id: 'notification_1' } as never);
+    prismaMock.auditLog.create.mockResolvedValue({ id: 'audit_1' } as never);
+    prismaMock.$transaction.mockImplementation(((operations: Promise<unknown>[]) => Promise.all(operations)) as never);
+
+    const res = await request(app)
+      .post('/api/appointments')
+      .set('Cookie', cookie)
+      .send({
+        patientId: 'patient_1',
+        doctorId: 'doctor_1',
+        scheduledAt: '2026-09-01T10:00:00Z',
+        reason: 'Follow-up',
+      });
+
+    expect(res.status).toBe(201);
+    expect(prismaMock.notification.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ link: '/appointments?appointmentId=appointment_1', userId: 'doctor_1' }),
+    });
+  });
 });

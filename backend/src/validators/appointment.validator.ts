@@ -17,6 +17,7 @@ export const updateAppointmentSchema = z.object({
 });
 
 export const listAppointmentsQuerySchema = z.object({
+  appointmentId: z.string().min(1).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   status: z.enum(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),

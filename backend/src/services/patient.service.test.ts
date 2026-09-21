@@ -17,9 +17,7 @@ describe('patient.service', () => {
       // idSequence.service.ts) — mock that instead of patient.count(), which
       // this service no longer uses after the H6 audit fix.
       prismaMock.$queryRaw.mockResolvedValue([{ value: 6 }] as never);
-      prismaMock.patient.create.mockImplementation((args) =>
-        Promise.resolve({ id: 'p1', ...args.data } as never)
-      );
+      prismaMock.patient.create.mockResolvedValue({ id: 'p1', patientNumber: 'PAT-000006' } as never);
 
       const result = await createPatient(
         {
@@ -41,7 +39,7 @@ describe('patient.service', () => {
 
     it('strips empty-string optional fields to undefined rather than saving blanks', async () => {
       prismaMock.$queryRaw.mockResolvedValue([{ value: 1 }] as never);
-      prismaMock.patient.create.mockImplementation((args) => Promise.resolve({ id: 'p1', ...args.data } as never));
+      prismaMock.patient.create.mockResolvedValue({ id: 'p1', patientNumber: 'PAT-000001' } as never);
 
       await createPatient(
         {

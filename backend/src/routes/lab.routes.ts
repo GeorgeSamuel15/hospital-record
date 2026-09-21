@@ -170,7 +170,7 @@ const createResult = asyncHandler(async (req: Request<unknown, unknown, CreateLa
 const router = Router();
 router.use(requireAuth());
 
-router.get('/requests', requireRole(Role.ADMIN, Role.DOCTOR, Role.LAB_TECHNICIAN), list);
+router.get('/requests', requireRole(Role.ADMIN, Role.DOCTOR, Role.LAB_TECHNICIAN), validate(listLabRequestsQuerySchema, 'query'), list);
 router.post('/requests', requireRole(Role.DOCTOR), validate(createLabRequestSchema), createRequest);
 router.put(
   '/requests/:id/status',

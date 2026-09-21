@@ -6,17 +6,16 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   FRONTEND_URL: z.string().default('http://localhost:5173'),
+  APP_ORIGINS: z.string().optional(),
 
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),
   JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET must be at least 32 characters'),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
 
-  COOKIE_SECURE: z
-    .string()
-    .default('false')
-    .transform((v) => v === 'true'),
-  COOKIE_DOMAIN: z.string().default('localhost'),
+  COOKIE_SECURE: z.enum(['true', 'false']).optional(),
+  COOKIE_DOMAIN: z.string().optional(),
+  COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).optional(),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(900000),
   RATE_LIMIT_MAX: z.coerce.number().default(300),
@@ -41,4 +40,28 @@ if (!parsed.success) {
   throw new Error('Invalid environment configuration. Check your .env against .env.example.');
 }
 
-export const env = parsed.data;
+const rawEnv = parsed.data;
+const cookieSecure = rawEnv.NODE_ENV === 'production' || rawEnv.COOKIE_SECURE === 'true';
+const cookieSameSite = rawEnv.COOKIE_SAME_SITE ?? (rawEnv.NODE_ENV === 'production' ? 'none' : 'lax');
+const requestedCookieDomain = rawEnv.COOKIE_DOMAIN?.trim();
+
+// Host-only cookies are correct for a separately hosted API (for example,
+// Vercel frontend + Render backend). A production cookie scoped to localhost
+// is never useful, so an old value is safely ignored during upgrades.
+const cookieDomain = rawEnv.NODE_ENV === 'production' && requestedCookieDomain === 'localhost'
+  ? undefined
+  : requestedCookieDomain || undefined;
+
+const appOrigins = [...new Set(
+  [rawEnv.FRONTEND_URL, ...(rawEnv.APP_ORIGINS?.split(',') ?? [])]
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+)];
+
+export const env = {
+  ...rawEnv,
+  APP_ORIGINS: appOrigins,
+  COOKIE_SECURE: cookieSecure,
+  COOKIE_DOMAIN: cookieDomain,
+  COOKIE_SAME_SITE: cookieSameSite,
+};

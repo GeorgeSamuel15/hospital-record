@@ -6,6 +6,7 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import { env } from './config/env';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
+import { AppError } from './utils/AppError';
 import authRoutes from './routes/auth.routes';
 import patientRoutes from './routes/patient.routes';
 import visitRoutes from './routes/visit.routes';
@@ -25,13 +26,23 @@ import notificationRoutes from './routes/notification.routes';
 
 const app = express();
 
+// Render and most production platforms forward the original protocol/IP.
+// Trust exactly the first proxy so secure-cookie and rate-limit behaviour is
+// correct without accepting arbitrary forwarded headers from the internet.
+if (env.NODE_ENV === 'production') app.set('trust proxy', 1);
+
 // --- Security headers -------------------------------------------------
 app.use(helmet());
 
 // --- CORS ---------------------------------------------------------------
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
+    origin: (origin, callback) => {
+      // Requests without Origin include health checks and server-to-server
+      // calls. Browser origins must match the explicit allowlist exactly.
+      if (!origin || env.APP_ORIGINS.includes(origin.replace(/\/$/, ''))) return callback(null, true);
+      return callback(AppError.forbidden(`Origin not allowed: ${origin}`));
+    },
     credentials: true,
   })
 );

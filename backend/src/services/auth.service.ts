@@ -57,7 +57,15 @@ export async function requestPasswordReset(email: string) {
     },
   });
 
-  await sendPasswordResetEmail(user.email, rawToken);
+  try {
+    await sendPasswordResetEmail(user.email, rawToken);
+  } catch (error) {
+    // The public endpoint must keep the same response for existing and
+    // unknown accounts. Record delivery failures operationally without
+    // leaking account existence or returning a misleading server error.
+    // eslint-disable-next-line no-console
+    console.error('Could not send password reset email:', error instanceof Error ? error.message : error);
+  }
 
   // Still returned so the controller can optionally surface it in
   // non-production responses (see auth.controller.ts) — convenient when
@@ -79,6 +87,10 @@ export async function resetPassword({ token, newPassword }: ResetPasswordInput) 
   await prisma.$transaction([
     prisma.user.update({ where: { id: resetRecord.userId }, data: { passwordHash } }),
     prisma.passwordResetToken.update({ where: { id: resetRecord.id }, data: { usedAt: new Date() } }),
+    prisma.passwordResetToken.updateMany({
+      where: { userId: resetRecord.userId, id: { not: resetRecord.id }, usedAt: null },
+      data: { usedAt: new Date() },
+    }),
   ]);
 
   return resetRecord.userId;
@@ -92,5 +104,8 @@ export async function changePassword(userId: string, { currentPassword, newPassw
   }
 
   const passwordHash = await hashPassword(newPassword);
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { passwordHash } }),
+    prisma.passwordResetToken.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } }),
+  ]);
 }
