@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Calendar, CalendarDays, List, Plus, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { isAxiosError } from 'axios';
 import { createAppointment, listAppointments, updateAppointment } from '@/services/appointment.service';
@@ -8,7 +9,7 @@ import { PatientPicker } from '@/components/PatientPicker';
 import { StaffPicker } from '@/components/StaffPicker';
 import { Badge } from '@/components/Badge';
 import { EmptyState } from '@/components/EmptyState';
-import { AppointmentStatus } from '@/types/clinical';
+import { AppointmentItem, AppointmentStatus } from '@/types/clinical';
 import { PatientListItem } from '@/types/patient';
 import { SkeletonListRows } from '@/components/Skeletons';
 import { MonthCalendar } from './MonthCalendar';
@@ -22,14 +23,26 @@ const STATUS_TONE: Record<AppointmentStatus, 'blue' | 'green' | 'amber' | 'red' 
 };
 
 export default function AppointmentsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedAppointmentId = searchParams.get('appointmentId');
   const [showForm, setShowForm] = useState(false);
-  const [view, setView] = useState<'calendar' | 'list'>('calendar');
+  const [view, setView] = useState<'calendar' | 'list'>(selectedAppointmentId ? 'list' : 'calendar');
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['appointments'],
-    queryFn: () => listAppointments({ pageSize: 100 }),
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['appointments', selectedAppointmentId ?? 'all'],
+    queryFn: () => listAppointments(selectedAppointmentId ? { appointmentId: selectedAppointmentId, pageSize: 1 } : { pageSize: 100 }),
   });
+
+  useEffect(() => {
+    if (selectedAppointmentId) setView('list');
+  }, [selectedAppointmentId]);
+
+  const clearAppointmentSelection = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('appointmentId');
+    setSearchParams(next, { replace: true });
+  };
 
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: AppointmentStatus }) => updateAppointment(id, { status }),
@@ -40,16 +53,11 @@ export default function AppointmentsPage() {
     onError: () => toast.error('Could not update appointment.'),
   });
 
- const grouped = (data?.appointments ?? []).reduce((acc, appt) => {
-  const day = new Date(appt.scheduledAt).toLocaleDateString(undefined, {
-    weekday: 'long',
-    month: 'short',
-    day: 'numeric',
-  });
-
-      (acc[day] ??= []).push(appt);
-       return acc;
-  }, {} as Record<string, NonNullable<typeof data>['appointments']>);
+  const grouped = (data?.appointments ?? []).reduce<Record<string, AppointmentItem[]>>((acc, appt) => {
+    const day = new Date(appt.scheduledAt).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    (acc[day] ??= []).push(appt);
+    return acc;
+  }, {});
 
   return (
     <div>
@@ -88,25 +96,44 @@ export default function AppointmentsPage() {
 
       {showForm && <NewAppointmentForm onClose={() => setShowForm(false)} />}
 
-      {view === 'calendar' && data && data.appointments.length > 0 && (
+      {selectedAppointmentId && (
+        <div className="mt-6 flex flex-col gap-3 rounded-xl border border-primary-200 bg-primary-50 p-4 sm:flex-row sm:items-center sm:justify-between dark:border-primary-900 dark:bg-primary-950/30">
+          <div>
+            <p className="text-sm font-semibold text-primary-900 dark:text-primary-100">Appointment opened from a notification</p>
+            <p className="mt-0.5 text-xs text-primary-700 dark:text-primary-300">Only the selected appointment is shown below.</p>
+          </div>
+          <button type="button" className="btn-secondary" onClick={clearAppointmentSelection}>
+            Show all appointments
+          </button>
+        </div>
+      )}
+
+      {view === 'calendar' && !isError && data && data.appointments.length > 0 && (
         <div className="mt-6">
           <MonthCalendar appointments={data.appointments} />
         </div>
       )}
 
-      {(view === 'list' || !data || data.appointments.length === 0) && (
+      {(view === 'list' || isError || !data || data.appointments.length === 0) && (
       <div className="mt-6 space-y-6">
         {isLoading ? (
           <div className="card overflow-hidden"><SkeletonListRows /></div>
+        ) : isError ? (
+          <div className="card p-6 text-center">
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">Could not load appointments.</p>
+            <button type="button" className="btn-secondary mt-3" onClick={() => refetch()}>
+              Try again
+            </button>
+          </div>
         ) : !data || data.appointments.length === 0 ? (
           <EmptyState
             icon={Calendar}
-            title="No appointments scheduled"
-            description="Get started by scheduling a new appointment."
+            title={selectedAppointmentId ? 'Appointment not found' : 'No appointments scheduled'}
+            description={selectedAppointmentId ? 'It may have been removed, or you may no longer have access to it.' : 'Get started by scheduling a new appointment.'}
             action={
-              <button className="btn-primary" onClick={() => setShowForm(true)}>
-                <Plus className="h-4 w-4" />
-                Schedule appointment
+              <button className={selectedAppointmentId ? 'btn-secondary' : 'btn-primary'} onClick={selectedAppointmentId ? clearAppointmentSelection : () => setShowForm(true)}>
+                {!selectedAppointmentId && <Plus className="h-4 w-4" />}
+                {selectedAppointmentId ? 'Show all appointments' : 'Schedule appointment'}
               </button>
             }
           />
@@ -116,7 +143,11 @@ export default function AppointmentsPage() {
               <h3 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">{day}</h3>
               <div className="card divide-y divide-slate-100 overflow-hidden">
                 {appts.map((a) => (
-                  <div key={a.id} className="flex items-center justify-between px-4 py-3.5">
+                  <div
+                    key={a.id}
+                    id={`appointment-${a.id}`}
+                    className={`flex items-center justify-between px-4 py-3.5 ${a.id === selectedAppointmentId ? 'bg-primary-50 ring-2 ring-inset ring-primary-500 dark:bg-primary-950/30' : ''}`}
+                  >
                     <div>
                       <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
                         {new Date(a.scheduledAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} —{' '}

@@ -129,7 +129,7 @@ router.use(requireAuth());
 
 const canManage = requireRole(Role.ADMIN, Role.DOCTOR, Role.NURSE);
 
-router.get('/', list);
+router.get('/', validate(listAdmissionsQuerySchema, 'query'), list);
 router.post('/', canManage, validate(createAdmissionSchema), create);
 router.put('/:id/discharge', canManage, validate(dischargeAdmissionSchema), discharge);
 

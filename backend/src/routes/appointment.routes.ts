@@ -9,6 +9,7 @@ import { logAudit } from '../services/audit.service';
 import { notifyUser } from '../services/notification.service';
 import {
   createAppointmentSchema,
+  listAppointmentsQuerySchema,
   updateAppointmentSchema,
   CreateAppointmentInput,
   ListAppointmentsQuery,
@@ -70,7 +71,7 @@ async function createAppointment(input: CreateAppointmentInput, scheduledById: s
       type: 'APPOINTMENT_ASSIGNED',
       title: 'New appointment',
       message: `${appointment.patient.firstName} ${appointment.patient.lastName} — ${new Date(appointment.scheduledAt).toLocaleString()}`,
-      link: '/appointments',
+      link: `/appointments?appointmentId=${encodeURIComponent(appointment.id)}`,
     },
     scheduledById
   );
@@ -79,9 +80,10 @@ async function createAppointment(input: CreateAppointmentInput, scheduledById: s
 }
 
 async function listAppointments(query: ListAppointmentsQuery) {
-  const { from, to, status, doctorId, patientId, page, pageSize } = query;
+  const { appointmentId, from, to, status, doctorId, patientId, page, pageSize } = query;
 
   const where: Prisma.AppointmentWhereInput = {
+    ...(appointmentId ? { id: appointmentId } : {}),
     ...(status ? { status } : {}),
     ...(doctorId ? { doctorId } : {}),
     ...(patientId ? { patientId } : {}),
@@ -148,7 +150,7 @@ router.use(requireAuth());
 
 const canManage = requireRole(Role.ADMIN, Role.RECEPTIONIST, Role.DOCTOR, Role.NURSE);
 
-router.get('/', list);
+router.get('/', validate(listAppointmentsQuerySchema, 'query'), list);
 router.post('/', canManage, validate(createAppointmentSchema), create);
 router.put('/:id', canManage, validate(updateAppointmentSchema), update);
 

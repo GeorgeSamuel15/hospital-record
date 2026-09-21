@@ -2,6 +2,7 @@ import { api, ApiResponse } from './api';
 import { AppointmentItem, AppointmentStatus } from '@/types/clinical';
 
 export interface ListAppointmentsParams {
+  appointmentId?: string;
   from?: string;
   to?: string;
   status?: AppointmentStatus;

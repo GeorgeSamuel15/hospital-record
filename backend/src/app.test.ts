@@ -1,16 +1,28 @@
-import '../test/setupEnv';
-import { prismaMock, resetPrismaMock } from '../test/prismaMock';
+import './test/setupEnv';
+import { prismaMock, resetPrismaMock } from './test/prismaMock';
 
-jest.mock('../config/prisma', () => ({ prisma: prismaMock }));
+jest.mock('./config/prisma', () => ({ prisma: prismaMock }));
 
 import request from 'supertest';
-import app from '../app';
+import app from './app';
 
 describe('GET /api/health', () => {
   it('returns a success envelope without touching the database', async () => {
     const res = await request(app).get('/api/health');
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ success: true });
+  });
+
+  it('allows the configured frontend origin', async () => {
+    const res = await request(app).get('/api/health').set('Origin', 'http://localhost:5173');
+    expect(res.status).toBe(200);
+    expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173');
+  });
+
+  it('rejects an origin that is not configured', async () => {
+    const res = await request(app).get('/api/health').set('Origin', 'https://lookalike.example');
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/origin not allowed/i);
   });
 });
 

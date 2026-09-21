@@ -15,7 +15,7 @@ export interface ApiResponse<T> {
 }
 
 let isRefreshing = false;
-let pendingQueue: Array<() => void> = [];
+let pendingQueue: Array<{ retry: () => void; reject: (reason?: unknown) => void }> = [];
 
 // If an access token expires mid-session, try one silent refresh before
 // giving up and forcing the user back to login.
@@ -26,8 +26,8 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && !originalRequest._retry && !originalRequest.url?.includes('/auth/')) {
       if (isRefreshing) {
-        return new Promise((resolve) => {
-          pendingQueue.push(() => resolve(api(originalRequest)));
+        return new Promise((resolve, reject) => {
+          pendingQueue.push({ retry: () => resolve(api(originalRequest)), reject });
         });
       }
 
@@ -36,12 +36,13 @@ api.interceptors.response.use(
 
       try {
         await api.post('/auth/refresh');
-        pendingQueue.forEach((cb) => cb());
+        pendingQueue.forEach(({ retry }) => retry());
         pendingQueue = [];
         return api(originalRequest);
       } catch (refreshError) {
+        pendingQueue.forEach(({ reject }) => reject(refreshError));
         pendingQueue = [];
-        window.location.href = '/login';
+        window.location.replace('/login');
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

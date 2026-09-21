@@ -11,6 +11,7 @@ export interface AuthenticatedUser {
   firstName: string;
   lastName: string;
   isActive: boolean;
+  isDemo: boolean;
 }
 
 declare global {
@@ -37,7 +38,7 @@ export function requireAuth() {
 
       const user = await prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, role: true, email: true, firstName: true, lastName: true, isActive: true },
+        select: { id: true, role: true, email: true, firstName: true, lastName: true, isActive: true, isDemo: true },
       });
 
       if (!user) throw AppError.unauthorized('Account no longer exists.');

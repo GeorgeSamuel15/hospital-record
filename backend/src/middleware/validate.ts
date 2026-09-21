@@ -18,7 +18,7 @@ export function validate(schema: AnyZodObject, source: 'body' | 'query' | 'param
           errors: err.flatten().fieldErrors,
         });
       }
-      next(err);
+      return next(err);
     }
   };
 }

@@ -60,7 +60,9 @@ export function NotificationBell() {
   const handleClickNotification = (n: NotificationItem) => {
     if (!n.isRead) markReadMutation.mutate(n.id);
     setOpen(false);
-    if (n.link) navigate(n.link);
+    // Notifications may only navigate within this SPA. Reject protocol-relative
+    // and external values even if malformed data reaches the database.
+    if (n.link?.startsWith('/') && !n.link.startsWith('//')) navigate(n.link);
   };
 
   const unreadCount = unreadQuery.data ?? 0;

@@ -1,4 +1,4 @@
-import { NextFunction, Request, Response } from 'express';
+import { NextFunction, Request, RequestHandler, Response } from 'express';
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import { AppError } from '../utils/AppError';
@@ -53,10 +53,20 @@ export function errorHandler(
 }
 
 /** Wraps an async route handler so rejected promises reach errorHandler. */
-export function asyncHandler(
-  fn: (req: any, res: any, next: NextFunction) => Promise<unknown> | unknown
-): (req: Request, res: Response, next: NextFunction) => void {
+export function asyncHandler<Params, ResBody, ReqBody, ReqQuery>(
+  fn: (
+    req: Request<Params, ResBody, ReqBody, ReqQuery>,
+    res: Response<ResBody>,
+    next: NextFunction
+  ) => Promise<unknown>
+): RequestHandler {
   return (req, res, next) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
+    Promise.resolve(
+      fn(
+        req as unknown as Request<Params, ResBody, ReqBody, ReqQuery>,
+        res as unknown as Response<ResBody>,
+        next
+      )
+    ).catch(next);
   };
 }
